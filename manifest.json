@@ -1,0 +1,10 @@
+{
+  "name": "購物價格管家",
+  "short_name": "購物管家",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f7f5f1",
+  "theme_color": "#f7f5f1",
+  "lang": "zh-Hant",
+  "icons": []
+}
