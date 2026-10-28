@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f7f5f1">
+<link rel="manifest" href="manifest.json">
+<title>購物價格管家</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root{--bg:#f7f5f1;--card:#fff;--ink:#262522;--muted:#8a8780;--line:#e8e3da;--accent:#7a6856;--good:#47765a;--warn:#a66b38;--danger:#a14f4f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif}
+.app{max-width:760px;margin:auto;padding:env(safe-area-inset-top) 18px calc(84px + env(safe-area-inset-bottom))}
+header{padding:28px 0 18px}h1{font-size:27px;margin:0 0 5px;letter-spacing:.02em}.sub{color:var(--muted);font-size:13px}
+.search{background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px 15px;width:100%;font-size:16px;outline:none}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.stat,.card{background:var(--card);border:1px solid var(--line);border-radius:18px}.stat{padding:14px}.stat b{display:block;font-size:21px;margin-top:4px}.label{font-size:12px;color:var(--muted)}
+.section{margin-top:22px}.section h2{font-size:17px;margin:0 0 10px}
+.card{padding:16px;margin-bottom:10px}.row{display:flex;justify-content:space-between;gap:12px;align-items:center}.name{font-weight:650;font-size:16px}.meta{color:var(--muted);font-size:12px;margin-top:5px}.price{font-weight:700;font-size:18px}.unit{font-size:12px;color:var(--muted);margin-top:3px}
+button{border:0;border-radius:14px;padding:12px 15px;font-weight:650;font-size:14px;cursor:pointer}.primary{background:var(--ink);color:#fff}.secondary{background:#eeeae3;color:var(--ink)}.danger{background:#f7e7e7;color:var(--danger)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:4;border-radius:999px;padding:16px 20px;background:var(--ink);color:#fff;box-shadow:0 8px 30px #0002}
+nav{position:fixed;left:0;right:0;bottom:0;padding:10px 10px calc(10px + env(safe-area-inset-bottom));background:#ffffffeb;backdrop-filter:blur(16px);border-top:1px solid var(--line);display:flex;justify-content:center;gap:8px;z-index:3}nav button{background:transparent;color:var(--muted);padding:8px 12px}nav button.active{color:var(--ink);font-weight:800}
+.view{display:none}.view.active{display:block}.empty{text-align:center;color:var(--muted);padding:40px 10px}
+.modal{position:fixed;inset:0;background:#0005;display:none;align-items:flex-end;z-index:10}.modal.show{display:flex}.sheet{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:24px 24px 0 0;padding:20px 18px calc(30px + env(safe-area-inset-bottom))}
+.field{margin:12px 0}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}.field input,.field select,.field textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.badge{display:inline-block;padding:5px 8px;border-radius:999px;background:#eeeae3;font-size:11px;color:var(--muted);margin:3px 3px 0 0}
+.analysis{padding:14px;border-radius:15px;background:#f3eee7;margin-top:12px}.good{color:var(--good)}.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:9px 4px;border-bottom:1px solid var(--line)}th{color:var(--muted)}
+.small{font-size:12px;color:var(--muted);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>購物價格管家</h1><div class="sub">記住你買過什麼，也記住什麼時候最划算。</div></header>
+
+<section id="home" class="view active">
+<input id="homeSearch" class="search" placeholder="搜尋商品，例如：小黑瓶、UNOVE…">
+<div class="stats">
+<div class="stat"><span class="label">商品數</span><b id="statProducts">0</b></div>
+<div class="stat"><span class="label">購買紀錄</span><b id="statPurchases">0</b></div>
+<div class="stat"><span class="label">今年花費</span><b id="statYear">$0</b></div>
+</div>
+<div class="actions"><button class="primary" onclick="openPurchase()">＋ 新增購買</button><button class="secondary" onclick="openCapture()">📷 截圖／照片辨識</button></div>
+<div class="section"><h2>可能快用完</h2><div id="reminders"></div></div>
+<div class="section"><h2>最近購買</h2><div id="recent"></div></div>
+</section>
+
+<section id="products" class="view">
+<div class="row"><h2>商品</h2><button class="secondary" onclick="openPurchase()">＋ 新增</button></div>
+<input id="productSearch" class="search" placeholder="搜尋商品">
+<div id="productList" class="section"></div>
+</section>
+
+<section id="stats" class="view">
+<h2>價格分析</h2><div class="card"><div class="small">這一版先從你的歷史資料計算最低價、平均價與單位最低價。後續會加入通路比較與智慧購買建議。</div></div>
+<div id="analysisList" class="section"></div>
+</section>
+
+<section id="settings" class="view">
+<h2>設定</h2>
+<div class="card"><b>資料</b><p class="small">目前資料保存在這台裝置的瀏覽器中。正式版會加入雲端同步，讓 iPhone、iPad、Windows 共用資料。</p><button class="secondary" onclick="exportData()">匯出資料</button> <button class="danger" onclick="resetData()">清除全部資料</button></div>
+<div class="card"><b>下一版功能</b><p class="small">目前支援購物截圖文字辨識（OCR，需人工核對）；後續可再加入條碼掃描、AI 欄位判讀與跨裝置同步。</p></div>
+</section>
+</div>
+
+<button class="fab" onclick="openPurchase()">＋ 購買紀錄</button>
+<nav>
+<button class="active" data-view="home">⌂ 首頁</button><button data-view="products">▣ 商品</button><button data-view="stats">◔ 分析</button><button data-view="settings">⚙ 設定</button>
+</nav>
+
+<div id="modal" class="modal"><div class="sheet">
+<div class="row"><h2 id="modalTitle">新增購買紀錄</h2><button class="secondary" onclick="closeModal()">關閉</button></div>
+<form id="purchaseForm">
+<div class="field"><label>商品名稱 *</label><input id="fName" required placeholder="例如：蘭蔻小黑瓶 Pro"></div>
+<div class="grid2"><div class="field"><label>規格／容量 *</label><input id="fSize" required placeholder="50"></div><div class="field"><label>單位</label><select id="fUnit"><option>ml</option><option>g</option><option>件</option><option>包</option><option>盒</option><option>顆</option><option>瓶</option></select></div></div>
+<div class="grid2"><div class="field"><label>數量</label><input id="fQty" type="number" min="1" value="1"></div><div class="field"><label>實付價格 *</label><input id="fPrice" type="number" min="0" required placeholder="2480"></div></div>
+<div class="grid2"><div class="field"><label>購買日期 *</label><input id="fDate" type="date" required></div><div class="field"><label>購買通路</label><select id="fChannel"><option>momo</option><option>蝦皮</option><option>品牌官網</option><option>實體店</option><option>Olive Young</option><option>韓國免稅店</option><option>其他</option></select></div></div>
+<div class="field"><label>優惠／折抵</label><input id="fDiscount" placeholder="例如：85折、折價券 -200、滿額折抵"></div>
+<div class="field"><label>贈品</label><textarea id="fGift" rows="2" placeholder="例如：旅行組、化妝包"></textarea></div>
+<div class="grid2"><div class="field"><label>贈品估值（選填）</label><input id="fGiftValue" type="number" min="0" placeholder="500"></div><div class="field"><label>預估使用週期（月）</label><input id="fMonths" type="number" min="0" step="1" placeholder="6"></div></div>
+<div class="field"><label>備註</label><textarea id="fNote" rows="2" placeholder="母親節檔期、會員日…"></textarea></div>
+<button class="primary" style="width:100%;margin-top:8px">儲存紀錄</button>
+</form>
+</div></div>
+
+<div id="captureModal" class="modal"><div class="sheet">
+<div class="row"><h2>購物截圖辨識</h2><button class="secondary" onclick="closeCapture()">關閉</button></div>
+<div class="card">
+<p><b>選擇購物截圖或訂單照片</b></p>
+<p class="small">先由瀏覽器辨識圖片中的文字，再嘗試填入商品名稱、價格、日期等欄位。辨識結果可能有誤，請務必核對後再儲存。首次使用需要網路載入繁體中文辨識模型。</p>
+<input type="file" accept="image/*" id="imageInput">
+<div id="imagePreviewWrap" style="display:none;margin-top:12px"><img id="imagePreview" alt="待辨識圖片" style="display:block;max-width:100%;max-height:280px;object-fit:contain;border-radius:12px"></div>
+<div class="actions"><button type="button" class="secondary" id="recognizeBtn" onclick="recognizeImage()">辨識圖片文字</button><button type="button" class="primary" id="useOcrBtn" onclick="useOcrResult()" disabled>帶入新增紀錄</button></div>
+<div id="ocrStatus" class="small" aria-live="polite">尚未選擇圖片。</div>
+<div class="field"><label>辨識到的文字（可自行修正）</label><textarea id="ocrText" rows="7" placeholder="辨識結果會顯示在這裡"></textarea></div>
+</div>
+<div class="small">隱私提醒：圖片在你的瀏覽器中處理；辨識程式及語言模型會從第三方 CDN 載入。請不要上傳含有地址、電話、訂單編號等不必要個資的圖片。</div>
+</div></div>
+
+<script>
+const KEY='shoppingKeeperV1';
+let data=JSON.parse(localStorage.getItem(KEY)||'{"purchases":[]}');
+const $=id=>document.getElementById(id);
+function save(){localStorage.setItem(KEY,JSON.stringify(data));render();}
+function money(n){return '$'+Math.round(Number(n)||0).toLocaleString('zh-TW')}
+function unitPrice(p){let total=(Number(p.size)||0)*(Number(p.qty)||1);return total?Number(p.price)/total:null}
+function products(){
+ const m={}; data.purchases.forEach(p=>{const k=p.name.trim();if(!m[k])m[k]=[];m[k].push(p)});return m
+}
+function render(){
+ const ps=products(), keys=Object.keys(ps), now=new Date(), y=now.getFullYear();
+ $('statProducts').textContent=keys.length;$('statPurchases').textContent=data.purchases.length;
+ $('statYear').textContent=money(data.purchases.filter(p=>new Date(p.date).getFullYear()===y).reduce((s,p)=>s+Number(p.price),0));
+ renderRecent();renderReminders();renderProducts();renderAnalysis();
+}
+function renderRecent(){
+ const arr=[...data.purchases].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
+ $('recent').innerHTML=arr.length?arr.map(card).join(''):'<div class="empty">還沒有購買紀錄。先新增第一筆吧。</div>';
+}
+function card(p){
+ const up=unitPrice(p);
+ return `<div class="card" onclick='showProduct(${JSON.stringify(p.name)})'><div class="row"><div><div class="name">${esc(p.name)}</div><div class="meta">${esc(p.date)} · ${esc(p.channel)} · ${p.size}${p.unit} × ${p.qty}</div></div><div style="text-align:right"><div class="price">${money(p.price)}</div>${up?`<div class="unit">${money(up)}/${esc(p.unit)}</div>`:''}</div></div>${p.discount?`<span class="badge">${esc(p.discount)}</span>`:''}${p.gift?`<span class="badge">🎁 ${esc(p.gift)}</span>`:''}</div>`
+}
+function renderProducts(){
+ const q=($('productSearch').value||'').toLowerCase(), ps=products();
+ const keys=Object.keys(ps).filter(k=>k.toLowerCase().includes(q));
+ $('productList').innerHTML=keys.length?keys.map(k=>{
+  const arr=ps[k], prices=arr.map(x=>Number(x.price)), units=arr.map(unitPrice).filter(Boolean), last=[...arr].sort((a,b)=>b.date.localeCompare(a.date))[0];
+  return `<div class="card" onclick='showProduct(${JSON.stringify(k)})'><div class="row"><div><div class="name">${esc(k)}</div><div class="meta">${arr.length} 次購買 · 最近 ${last.date}</div></div><div style="text-align:right"><div class="price">${money(Math.min(...prices))}</div><div class="unit">歷史最低</div></div></div><div class="meta">平均 ${money(prices.reduce((a,b)=>a+b,0)/prices.length)}${units.length?' · 單位最低 '+money(Math.min(...units))+'/'+esc(last.unit):''}</div></div>`
+ }).join(''):'<div class="empty">找不到商品。</div>';
+}
+function renderAnalysis(){
+ const ps=products();
+ $('analysisList').innerHTML=Object.keys(ps).map(k=>{
+  const arr=ps[k], prices=arr.map(p=>Number(p.price)), units=arr.map(unitPrice).filter(Boolean), best=arr.reduce((a,b)=>unitPrice(b)!=null&&(unitPrice(a)==null||unitPrice(b)<unitPrice(a))?b:a);
+  return `<div class="card"><div class="name">${esc(k)}</div><div class="meta">最低 ${money(Math.min(...prices))} · 平均 ${money(prices.reduce((a,b)=>a+b,0)/prices.length)}</div>${units.length?`<div class="analysis"><b>最佳單位價格：${money(Math.min(...units))}/${esc(best.unit)}</b><br><span class="small">${esc(best.date)} · ${esc(best.channel)} · ${best.size}${esc(best.unit)} × ${best.qty}</span></div>`:''}</div>`
+ }).join('')||'<div class="empty">有資料後，這裡會自動產生分析。</div>';
+}
+function renderReminders(){
+ const today=new Date();
+ const arr=data.purchases.filter(p=>p.months>0).map(p=>{const d=new Date(p.date);d.setMonth(d.getMonth()+Number(p.months));return {...p,due:d}}).filter(p=>p.due<=today).sort((a,b)=>b.due-a.due).slice(0,5);
+ $('reminders').innerHTML=arr.length?arr.map(p=>`<div class="card"><div class="name">${esc(p.name)}</div><div class="meta">上次購買 ${p.date} · 預估使用 ${p.months} 個月</div><div class="analysis warn">可能快用完了，建議查看目前價格。</div></div>`).join(''):'<div class="small">目前沒有到期提醒。新增紀錄時填寫「預估使用週期」即可。</div>';
+}
+function openPurchase(){
+ $('purchaseForm').reset();$('fDate').value=new Date().toISOString().slice(0,10);$('fQty').value=1;$('modal').classList.add('show')
+}
+function closeModal(){$('modal').classList.remove('show')}
+$('purchaseForm').onsubmit=e=>{e.preventDefault();data.purchases.push({id:Date.now(),name:$('fName').value,size:$('fSize').value,unit:$('fUnit').value,qty:$('fQty').value,price:$('fPrice').value,date:$('fDate').value,channel:$('fChannel').value,discount:$('fDiscount').value,gift:$('fGift').value,giftValue:$('fGiftValue').value,months:$('fMonths').value,note:$('fNote').value});save();closeModal()}
+function showProduct(name){
+ const arr=data.purchases.filter(p=>p.name===name).sort((a,b)=>b.date.localeCompare(a.date));if(!arr.length)return;
+ const prices=arr.map(p=>Number(p.price)), units=arr.map(unitPrice).filter(Boolean);
+ const best=arr.reduce((a,b)=>unitPrice(b)!=null&&(unitPrice(a)==null||unitPrice(b)<unitPrice(a))?b:a);
+ $('modalTitle').textContent=name;
+ $('purchaseForm').innerHTML=`<div class="card"><div class="label">歷史最低價</div><div class="price">${money(Math.min(...prices))}</div><div class="label" style="margin-top:8px">平均價格 ${money(prices.reduce((a,b)=>a+b,0)/prices.length)} · 購買 ${arr.length} 次</div>${units.length?`<div class="analysis"><b>單位最低：${money(Math.min(...units))}/${esc(best.unit)}</b><br><span class="small">最佳方案：${best.date} · ${esc(best.channel)} · ${best.size}${esc(best.unit)} × ${best.qty}</span></div>`:''}</div>
+<table><thead><tr><th>日期</th><th>通路</th><th>實付</th><th>單位價</th></tr></thead><tbody>${arr.map(p=>`<tr><td>${p.date}</td><td>${esc(p.channel)}</td><td>${money(p.price)}</td><td>${unitPrice(p)?money(unitPrice(p))+'/'+esc(p.unit):'-'}</td></tr>`).join('')}</tbody></table><div style="margin-top:15px"><button class="secondary" onclick="closeModal()">完成</button></div>`;
+ $('modal').classList.add('show')
+}
+function openCapture(){$('captureModal').classList.add('show')}function closeCapture(){$('captureModal').classList.remove('show')}
+$('homeSearch').oninput=e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('#recent .card').forEach(c=>c.style.display=c.innerText.toLowerCase().includes(q)?'block':'none')}
+$('productSearch').oninput=renderProducts;
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$(b.dataset.view).classList.add('active');document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');render()});
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function exportData(){const a=document.createElement('a');a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data,null,2));a.download='shopping-price-data.json';a.click()}
+function resetData(){if(confirm('確定要清除全部購買紀錄嗎？')){data={purchases:[]};save()}}
+
+let selectedOcrImage = null;
+let lastOcrText = '';
+$('imageInput').addEventListener('change', e => {
+ const file = e.target.files && e.target.files[0];
+ if (!file) return;
+ if (!file.type.startsWith('image/')) { $('ocrStatus').textContent='請選擇圖片檔案。'; return; }
+ selectedOcrImage = file;
+ $('imagePreview').src = URL.createObjectURL(file);
+ $('imagePreviewWrap').style.display = 'block';
+ $('ocrStatus').textContent = '圖片已選取，請點「辨識圖片文字」。';
+ $('ocrText').value = '';
+ $('useOcrBtn').disabled = true;
+});
+async function recognizeImage(){
+ if (!selectedOcrImage) { $('ocrStatus').textContent='請先選擇一張購物截圖或照片。'; return; }
+ if (!window.Tesseract) { $('ocrStatus').textContent='辨識元件載入失敗，請確認網路後重新整理網頁。'; return; }
+ const btn=$('recognizeBtn'); btn.disabled=true; $('useOcrBtn').disabled=true;
+ $('ocrStatus').textContent='正在載入繁體中文辨識模型，首次使用可能需要一點時間……';
+ let worker;
+ try {
+   worker = await Tesseract.createWorker('chi_tra+eng');
+   $('ocrStatus').textContent='正在辨識圖片文字，請稍候……';
+   const result = await worker.recognize(selectedOcrImage);
+   lastOcrText = (result.data && result.data.text || '').trim();
+   $('ocrText').value = lastOcrText;
+   if (!lastOcrText) {
+     $('ocrStatus').textContent='沒有辨識到清楚的文字。請改用較清晰、文字較大的截圖再試一次。';
+   } else {
+     $('ocrStatus').textContent='辨識完成。請檢查下方文字，修正錯字後再按「帶入新增紀錄」。價格與商品名稱不一定能自動判斷正確。';
+     $('useOcrBtn').disabled=false;
+   }
+ } catch(err) {
+   console.error(err);
+   $('ocrStatus').textContent='辨識失敗。請確認網路連線，或改用清晰度較高的圖片再試。';
+ } finally {
+   if (worker) { try { await worker.terminate(); } catch(e){} }
+   btn.disabled=false;
+ }
+}
+function useOcrResult(){
+ const text=$('ocrText').value.trim();
+ if (!text) { $('ocrStatus').textContent='目前沒有可帶入的文字，請先辨識圖片或貼上文字。'; return; }
+ // Heuristic extraction: suggest a likely price/date/name; user must verify all fields.
+ const lines=text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+ const priceMatches=[...text.matchAll(/(?:NT\$|NTD|TWD|\$|＄|實付|付款金額|訂單金額|總計|合計|小計|金額|價格)?\s*([0-9][0-9,]{1,})(?:\s*(?:元|NTD|TWD))?/gi)]
+   .map(m=>Number(m[1].replace(/,/g,''))).filter(n=>Number.isFinite(n)&&n>=10&&n<=1000000);
+ let price='';
+ const preferredLine=lines.find(l=>/(實付|付款金額|訂單金額|總計|合計|小計|金額|價格)/i.test(l));
+ if (preferredLine) {
+   const pm=preferredLine.match(/(?:NT\$|NTD|TWD|\$)?\s*([0-9][0-9,]{1,})/i);
+   if(pm) { const n=Number(pm[1].replace(/,/g,'')); if(n>=10&&n<=1000000) price=n; }
+ }
+ if (!price && priceMatches.length) price=Math.min(...priceMatches);
+ const dateMatch=text.match(/(20\d{2})[年/.\-]\s*(\d{1,2})[月/.\-]\s*(\d{1,2})日?/);
+ const date=dateMatch ? `${dateMatch[1]}-${String(dateMatch[2]).padStart(2,'0')}-${String(dateMatch[3]).padStart(2,'0')}` : '';
+ const noise=/^(訂單|訂單編號|訂單明細|購物車|付款方式|配送方式|收件人|收件地址|發票|統一編號|客服|商品明細|訂單成立|訂單日期|實付|付款金額|訂單金額|總計|合計|小計|金額|價格|數量|規格|優惠|折扣|贈品|訂購人|配送資訊)/;
+ const nameLine=lines.find(l=>l.length>=2 && l.length<=70 && !noise.test(l) && !/(https?:|www\.|@|^\d[\d\s\-/#]*$)/i.test(l) && !/(NT\$|NTD|TWD|實付|付款金額|訂單金額|總計|合計|小計)/i.test(l));
+ closeCapture();
+ openPurchase();
+ if(nameLine) $('fName').value=nameLine.replace(/^[•·\-*]\s*/,'').slice(0,100);
+ if(price) $('fPrice').value=price;
+ if(date) $('fDate').value=date;
+ $('fNote').value='由購物截圖 OCR 初步辨識，請確認欄位。\n\n辨識文字：\n'+text.slice(0,1800);
+ // Keep full OCR text available in the note; fields remain editable before saving.
+}
+
+render();
+</script>
+</body>
+</html>
